@@ -1,0 +1,14 @@
+[project]
+name = "Tanish_Restaurant"
+version = "0.1.0"
+description = "Multi-agent assistant for online food orders"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+Tanish_Restaurant = "Tanish_Restaurant:main"    
+
+[build-system]
+requires = ["uv_build>=0.12.4,<0.13.0"]
+build-backend = "uv_build"

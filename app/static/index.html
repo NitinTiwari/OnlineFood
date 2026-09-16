@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tanish Restaurant - AI Multi-Agent Server</title>
+    <meta name="description"
+        content="Intelligent multi-agent food ordering assistant powered by StoreDB (Customer, Orders, Products) and Vector DB Menu Search.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+    <!-- App Container -->
+    <div class="app-layout">
+
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="brand-logo">
+                    <div class="logo-icon">
+                        <i data-lucide="utensils-crossed"></i>
+                    </div>
+                    <div class="brand-text">
+                        <h1>Tanish Restaurant<span class="gradient-text"></span></h1>
+                        <span class="badge-sub">Multi-Agent Food Concierge</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="header-center">
+                <div class="customer-picker-container">
+                    <label for="customerSelect" class="picker-label">
+                        <i data-lucide="user-check"></i> Active Customer:
+                    </label>
+                    <select id="customerSelect" class="custom-select">
+                        <option value="1" selected>Alice Johnson (1 Active Order)</option>
+                        <option value="2">Bob Smith (1 Preparing Order)</option>
+                        <option value="3">Charlie Brown (1 Pending Order)</option>
+                        <option value="4">Diana Prince (1 Delivered Order)</option>
+                        <option value="5">Elena Vance (New Customer)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div class="status-indicator online">
+                    <span class="pulse-dot"></span>
+                    <span class="status-text">StoreDB & Vector DB Connected</span>
+                </div>
+                <button id="btnResetDb" class="btn-secondary" title="Reset & Re-seed StoreDB">
+                    <i data-lucide="rotate-ccw"></i>
+                    <span>Reset DB</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Body -->
+        <main class="main-content">
+
+            <!-- Left Panel: Chat Interface -->
+            <section class="chat-section">
+                <!-- Customer Quick Banner -->
+                <div class="customer-banner" id="customerBanner">
+                    <div class="banner-avatar">
+                        <i data-lucide="user"></i>
+                    </div>
+                    <div class="banner-info">
+                        <div class="banner-name" id="bannerCustName">Alice Johnson</div>
+                        <div class="banner-details" id="bannerCustAddress">
+                            <i data-lucide="map-pin"></i> 742 Evergreen Terrace, Apt 4B, Springfield
+                        </div>
+                    </div>
+                    <div class="banner-badge" id="bannerActiveOrderBadge">
+                        <span class="badge-pill pulse">Out for Delivery (#ORD-1001)</span>
+                    </div>
+                </div>
+
+                <!-- Quick Action Prompt Chips -->
+                <div class="quick-prompts-container">
+                    <span class="prompts-label"><i data-lucide="sparkles"></i> Quick queries:</span>
+                    <div class="prompts-scroll">
+                        <button class="prompt-chip" data-query="Where is my order #ORD-1001?">
+                            🛵 Track order #ORD-1001
+                        </button>
+                        <button class="prompt-chip" data-query="Show my order history and past orders">
+                            📋 My past orders
+                        </button>
+                        <button class="prompt-chip" data-query="Show me spicy pizzas under $18">
+                            🌶️ Spicy pizza &lt; $18
+                        </button>
+                        <button class="prompt-chip" data-query="What gluten-free vegetarian dishes do you have?">
+                            🌾 Gluten-Free & Veg items
+                        </button>
+                        <button class="prompt-chip" data-query="Suggest a sweet dessert and a refreshing drink">
+                            🍰 Dessert & Drink recommendations
+                        </button>
+                        <button class="prompt-chip" data-query="What are your store hours and delivery policies?">
+                            ⏰ Store hours & delivery
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Chat History Messages Container -->
+                <div class="chat-messages" id="chatMessages">
+                    <!-- Welcome Bot Message -->
+                    <div class="message-wrapper bot-message">
+                        <div class="agent-avatar supervisor-avatar">
+                            <i data-lucide="bot"></i>
+                        </div>
+                        <div class="message-bubble">
+                            <div class="message-meta">
+                                <span class="agent-tag supervisor-tag">
+                                    <i data-lucide="git-branch"></i> Supervisor Multi-Agent System
+                                </span>
+                                <span class="timestamp">Just now</span>
+                            </div>
+                            <div class="message-body">
+                                <p>👋 <strong>Welcome to FeastFlow AI!</strong> I am your intelligent dining concierge
+                                    orchestrating multiple specialized AI agents:</p>
+                                <ul>
+                                    <li>📦 <strong>StoreDB Order Agent:</strong> Tracks live orders, order histories,
+                                        itemized receipts, and rider ETAs.</li>
+                                    <li>🔍 <strong>Vector DB Menu Agent:</strong> Searches our dishes using semantic
+                                        vector embeddings, dietary filters (vegan, gluten-free, spicy), and price
+                                        matching.</li>
+                                    <li>🛎️ <strong>Support & Policy Agent:</strong> Answers questions on kitchen
+                                        operating hours, delivery radius, and refund policies.</li>
+                                </ul>
+                                <p>Try asking about your active orders or search the menu below!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Input Form -->
+                <div class="chat-input-wrapper">
+                    <form id="chatForm" class="chat-form">
+                        <div class="input-container">
+                            <input type="text" id="queryInput" class="chat-input"
+                                placeholder="Ask about your order status, menu items, dietary options, or store policies..."
+                                autocomplete="off" required />
+                            <button type="submit" id="btnSend" class="btn-send">
+                                <i data-lucide="send"></i>
+                                <span>Send</span>
+                            </button>
+                        </div>
+                    </form>
+                    <div class="input-footer">
+                        <span><i data-lucide="cpu"></i> Powered by LangGraph Multi-Agent Architecture • StoreDB SQLite •
+                            Vector Search</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Data & Agent Inspector -->
+            <aside class="inspector-section">
+
+                <!-- Tab Headers -->
+                <div class="tabs-header">
+                    <button class="tab-btn active" data-tab="tab-db">
+                        <i data-lucide="database"></i> StoreDB Live
+                    </button>
+                    <button class="tab-btn" data-tab="tab-vector">
+                        <i data-lucide="scan-search"></i> Vector DB Search
+                    </button>
+                    <button class="tab-btn" data-tab="tab-agents">
+                        <i data-lucide="workflow"></i> Agent Architecture
+                    </button>
+                </div>
+
+                <!-- Tab 1: StoreDB Live Explorer -->
+                <div class="tab-pane active" id="tab-db">
+                    <div class="tab-toolbar">
+                        <div class="subtabs">
+                            <button class="subtab-btn active" data-subtab="sub-orders">Orders (<span
+                                    id="ordersCount">5</span>)</button>
+                            <button class="subtab-btn" data-subtab="sub-products">Products (<span
+                                    id="productsCount">19</span>)</button>
+                            <button class="subtab-btn" data-subtab="sub-customers">Customers (<span
+                                    id="customersCount">5</span>)</button>
+                        </div>
+                        <button class="btn-icon" id="btnRefreshDb" title="Refresh DB View">
+                            <i data-lucide="refresh-cw"></i>
+                        </button>
+                    </div>
+
+                    <!-- Subtab Pane: Orders -->
+                    <div class="subtab-pane active" id="sub-orders">
+                        <div class="table-container" id="ordersTableContainer">
+                            <div class="loading-spinner"><i data-lucide="loader-2"></i> Loading orders...</div>
+                        </div>
+                    </div>
+
+                    <!-- Subtab Pane: Products -->
+                    <div class="subtab-pane" id="sub-products">
+                        <div class="table-container" id="productsTableContainer">
+                            <div class="loading-spinner"><i data-lucide="loader-2"></i> Loading products...</div>
+                        </div>
+                    </div>
+
+                    <!-- Subtab Pane: Customers -->
+                    <div class="subtab-pane" id="sub-customers">
+                        <div class="table-container" id="customersTableContainer">
+                            <div class="loading-spinner"><i data-lucide="loader-2"></i> Loading customers...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Vector DB Semantic Search Playground -->
+                <div class="tab-pane" id="tab-vector">
+                    <div class="vector-search-box">
+                        <div class="vector-input-row">
+                            <i data-lucide="search" class="search-icon"></i>
+                            <input type="text" id="vectorSearchInput"
+                                placeholder="Try 'spicy crunch', 'healthy vegan', 'truffle'..." />
+                            <button id="btnVectorSearch" class="btn-primary">Search</button>
+                        </div>
+                        <!-- Filter Chips -->
+                        <div class="vector-filters">
+                            <label class="filter-pill"><input type="checkbox" id="vFilterVeg"> 🌱 Vegetarian</label>
+                            <label class="filter-pill"><input type="checkbox" id="vFilterGf"> 🌾 Gluten-Free</label>
+                            <label class="filter-pill"><input type="checkbox" id="vFilterSpicy"> 🌶️ Spicy</label>
+                            <select id="vCategorySelect" class="filter-select">
+                                <option value="">All Categories</option>
+                                <option value="Pizza">Pizza</option>
+                                <option value="Burgers">Burgers</option>
+                                <option value="Pasta">Pasta</option>
+                                <option value="Bowls">Bowls</option>
+                                <option value="Sushi">Sushi</option>
+                                <option value="Salads">Salads</option>
+                                <option value="Desserts">Desserts</option>
+                                <option value="Beverages">Beverages</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="vector-results-container" id="vectorResultsContainer">
+                        <div class="empty-state">
+                            <i data-lucide="compass"></i>
+                            <p>Enter a query above to see real-time vector embeddings and similarity scores from the
+                                Menu Vector Store.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Multi-Agent Architecture Graph -->
+                <div class="tab-pane" id="tab-agents">
+                    <div class="architecture-view">
+                        <div class="arch-header">
+                            <h3>LangGraph Multi-Agent Architecture</h3>
+                            <p>How FeastFlow coordinates specialized agents to fulfill customer requests</p>
+                        </div>
+
+                        <div class="agent-nodes-flow">
+                            <!-- Node 1: Input -->
+                            <div class="flow-card node-input">
+                                <div class="node-icon"><i data-lucide="message-square"></i></div>
+                                <div class="node-details">
+                                    <h4>Customer Query</h4>
+                                    <p>Natural language input from chat or voice</p>
+                                </div>
+                            </div>
+
+                            <div class="flow-arrow"><i data-lucide="arrow-down"></i></div>
+
+                            <!-- Node 2: Supervisor -->
+                            <div class="flow-card node-supervisor">
+                                <div class="node-icon"><i data-lucide="git-branch"></i></div>
+                                <div class="node-details">
+                                    <h4>Supervisor Agent (Intent Router)</h4>
+                                    <p>Analyzes intent, customer profile context & state</p>
+                                </div>
+                            </div>
+
+                            <div class="flow-split">
+                                <div class="split-branch"></div>
+                                <div class="split-branch"></div>
+                                <div class="split-branch"></div>
+                            </div>
+
+                            <!-- Specialist Nodes -->
+                            <div class="specialist-grid">
+                                <div class="flow-card node-specialist order-specialist">
+                                    <div class="node-icon"><i data-lucide="package-check"></i></div>
+                                    <h4>Order Agent</h4>
+                                    <p>StoreDB SQL Engine</p>
+                                    <span class="tag">Customer & Orders</span>
+                                </div>
+
+                                <div class="flow-card node-specialist menu-specialist">
+                                    <div class="node-icon"><i data-lucide="sparkles"></i></div>
+                                    <h4>Menu Agent</h4>
+                                    <p>Vector DB Semantic Search</p>
+                                    <span class="tag">Menu Embeddings</span>
+                                </div>
+
+                                <div class="flow-card node-specialist support-specialist">
+                                    <div class="node-icon"><i data-lucide="help-circle"></i></div>
+                                    <h4>Support Agent</h4>
+                                    <p>Store Policy & FAQ</p>
+                                    <span class="tag">Hours & Policies</span>
+                                </div>
+                            </div>
+
+                            <div class="flow-arrow"><i data-lucide="arrow-down"></i></div>
+
+                            <!-- Node 4: Synthesis -->
+                            <div class="flow-card node-output">
+                                <div class="node-icon"><i data-lucide="layout"></i></div>
+                                <div class="node-details">
+                                    <h4>Response Synthesizer & Interactive UI</h4>
+                                    <p>Markdown formatting + Live Order Cards + Food Cards</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </aside>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
