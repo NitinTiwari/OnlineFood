@@ -11,3 +11,4 @@ guardrails-ai
 mcp
 pypdf
 groq>=0.2.0
+redis>=5.0.0

@@ -1,10 +1,11 @@
+
 import os
 import time
 from typing import List, Dict, Any, Optional
 import numpy as np
 from dotenv import load_dotenv
 
-from pinecone import Pinecone, ServerlessSpec
+# Pinecone import moved to lazy import within _init_pinecone
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from app.db.database import SessionLocal
@@ -40,7 +41,7 @@ class MenuVectorStore:
         self.documents: List[Dict[str, Any]] = []
         self._cached_embeddings: Optional[np.ndarray] = None
         self.embedder: Optional[HuggingFaceEmbeddings] = None
-        self.pc: Optional[Pinecone] = None
+        self.pc: Optional[Any] = None
         self.index = None
 
         self._init_embedder()
@@ -74,6 +75,7 @@ class MenuVectorStore:
             return
 
         try:
+            from pinecone import Pinecone, ServerlessSpec
             self.pc = Pinecone(api_key=self.api_key)
             indexes_res = self.pc.list_indexes()
             if hasattr(indexes_res, "names"):

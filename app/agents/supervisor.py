@@ -5,6 +5,8 @@ from typing import Dict, Any, Literal
 from app.agents.state import AgentState
 from groq import Groq
 from app.agents.tools import order_tools, menu_tools
+from app.agents.utils.redis_cache import RedisCache
+import settings
 
 class SupervisorAgent:
     """
@@ -101,6 +103,26 @@ class SupervisorAgent:
     # ---------------------------------------------------------------------
     def _llm_route(self, state: AgentState) -> AgentState:
         query = state.get("query", "").strip()
+        # Attempt to retrieve cached LLM routing result
+        cache_payload = {"query": query, "model": self._groq_model}
+        cached = RedisCache.get("llm_route", cache_payload)
+        if cached:
+            print("Cache hit: using cached LLM routing result")
+            intent = cached["intent"]
+            next_agent = cached["target_agent"]
+            thought = f"[CACHE HIT] LLM classified intent as {intent}, routing to {next_agent}."
+            trace_step = {
+                "agent": "Supervisor Router",
+                "thought": thought,
+                "tool_called": "classify_intent_llm",
+                "tool_input": {"query": query},
+                "tool_result": {"detected_intent": intent, "target_agent": next_agent, "cache": "hit"}
+            }
+            state["agent_trace"].append(trace_step)
+            state["intent"] = intent
+            state["next_agent"] = next_agent
+            return state
+        # Cache miss – proceed with LLM call
         trace_step = {
             "agent": "Supervisor Router",
             "thought": "Classifying customer intent using Groq LLM...",
@@ -108,7 +130,22 @@ class SupervisorAgent:
             "tool_input": {"query": query},
             "tool_result": {}
         }
+        # Check Redis cache for previous routing
+        payload = {"query": query}
+        cached = RedisCache.get("llm_route", payload)
+        if cached:
+            intent = cached.get("intent")
+            next_agent = cached.get("target_agent")
+            thought = f"Cache hit: intent {intent}, routing to {next_agent}."
+            trace_step["thought"] = thought
+            trace_step["tool_result"] = {"detected_intent": intent, "target_agent": next_agent}
+            state["intent"] = intent
+            state["next_agent"] = next_agent
+            state["agent_trace"].append(trace_step)
+            return state
+        
         try:
+            print("Calling LLM for intent classification")
             client = self._get_groq_client()
             system_prompt = (
                 "You are an intent classifier for an online food ordering system. "
@@ -127,7 +164,7 @@ class SupervisorAgent:
             intent = result.get("intent")
             next_agent = result.get("target_agent")
             thought = f"LLM classified intent as {intent}, routing to {next_agent}."
-            print("\n Intent  ", intent, "\n Next Agent  ", next_agent, "\n Thought  ", thought)
+            print(f"LLM result: intent={intent}, next_agent={next_agent}")
         except Exception as e:
             # Fallback to keyword routing on any error
             trace_step["thought"] = f"LLM classification failed ({e}); falling back to keyword routing."
@@ -140,6 +177,9 @@ class SupervisorAgent:
         trace_step["tool_result"] = {"detected_intent": intent, "target_agent": next_agent}
         state["intent"] = intent
         state["next_agent"] = next_agent
+        # Store routing result in Redis cache
+        RedisCache.set("llm_route", {"query": query}, {"intent": intent, "target_agent": next_agent}, ttl=settings.REDIS_TTL_SECONDS)
+        print("Caching LLM result for future requests")
         state["agent_trace"].append(trace_step)
         return state
 
