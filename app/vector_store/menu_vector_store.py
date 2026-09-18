@@ -131,7 +131,6 @@ class MenuVectorStore:
             f"Ingredients: {product.ingredients or ''}. "
             f"Description: {product.description}"
         )
-        print("diet_str : ",diet_str)
 
     def sync_with_db(self):
         """Load all available products from StoreDB, compute embeddings, and upsert to Pinecone."""
