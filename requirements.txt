@@ -2,11 +2,12 @@ fastapi
 uvicorn
 langgraph
 langchain-core
+langchain-huggingface
 langchain-groq
 langchain-pinecone
+sentence-transformers
 ragas
 guardrails-ai
 mcp
-# openpyxl
-# docx2txt
 pypdf
+groq>=0.2.0

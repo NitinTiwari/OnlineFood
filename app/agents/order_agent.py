@@ -22,7 +22,8 @@ class OrderAgent:
         query = state.get("query", "")
         customer_id = state.get("customer_id")
         customer_name = state.get("customer_name")
-
+        print(self.name)
+        
         trace_step = {
             "agent": "Order Agent",
             "thought": "Analyzing customer order inquiry and querying StoreDB (Customer, Order, OrderItem tables)...",

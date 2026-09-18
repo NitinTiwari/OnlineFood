@@ -50,6 +50,7 @@ class DbResetResponse(BaseModel):
 def on_startup():
     """Initialize DB and Vector Store on app startup."""
     init_db()
+    print("on_startup: called......")
     # Check if database has records; if not, seed it
     db = next(get_db())
     try:
@@ -74,6 +75,7 @@ def chat_endpoint(payload: ChatRequest):
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
     try:
+        print("chat_endpoint: called......")
         result = run_multi_agent_chat(
             query=payload.query.strip(),
             customer_id=payload.customer_id,
@@ -90,6 +92,7 @@ def chat_endpoint(payload: ChatRequest):
 @app.get("/api/customers")
 def get_customers(db: Session = Depends(get_db)):
     """List all customers in StoreDB for testing and account switching."""
+    print("get_customers: called......")
     customers = db.query(Customer).all()
     return {"customers": [c.to_dict() for c in customers]}
 
@@ -97,6 +100,7 @@ def get_customers(db: Session = Depends(get_db)):
 @app.get("/api/orders")
 def get_orders(customer_id: Optional[int] = None, db: Session = Depends(get_db)):
     """List orders in StoreDB, optionally filtered by customer."""
+    print("get_orders: called......")
     query = db.query(Order)
     if customer_id is not None:
         query = query.filter(Order.customer_id == customer_id)
@@ -107,6 +111,7 @@ def get_orders(customer_id: Optional[int] = None, db: Session = Depends(get_db))
 @app.get("/api/products")
 def get_products(category: Optional[str] = None, db: Session = Depends(get_db)):
     """List all products in StoreDB."""
+    print("get_products: called......")
     query = db.query(Product)
     if category:
         query = query.filter(Product.category.ilike(f"%{category}%"))
@@ -125,6 +130,7 @@ def search_menu_vector_db(
     top_k: int = 5
 ):
     """Direct Vector DB semantic search endpoint."""
+    print("search_menu_vector_db: called......")
     store = get_menu_vector_store()
     results = store.search(
         query=query,
@@ -141,6 +147,7 @@ def search_menu_vector_db(
 @app.post("/api/db/reset")
 def reset_db_endpoint():
     """Reset and re-seed StoreDB with fresh records and re-index Vector DB."""
+    print("reset_db_endpoint: called......")
     try:
         seed_database()
         store = get_menu_vector_store()
@@ -157,7 +164,8 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/")
 def serve_index():
     """Serve the single-page application UI."""
+    print("serve_index: called......")
     index_path = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    return {"message": "Tanish Restaurant AI Backend Running. Static index.html not found yet."}
+    return {"message": "Tanish Restaurant AI Backend Running."}

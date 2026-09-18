@@ -1,43 +1,113 @@
 import os
-import re
-import math
+import time
 from typing import List, Dict, Any, Optional
 import numpy as np
+from dotenv import load_dotenv
+
+from pinecone import Pinecone, ServerlessSpec
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from app.db.database import SessionLocal
 from app.db.models import Product
 
+load_dotenv()
+
 
 class MenuVectorStore:
     """
-    Vector Database engine for menu items semantic search.
-    Supports OpenAI Embeddings with dense vector cosine similarity,
-    plus an internal TF-IDF vectorizer fallback.
+    Pinecone Cloud Vector Database engine for menu items semantic search.
+    Embeds StoreDB product catalog into Pinecone vector index named 'OnlineFood'.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        index_name: Optional[str] = None,
+        api_key: Optional[str] = None,
+        cloud: Optional[str] = None,
+        region: Optional[str] = None,
+        embedding_model_name: Optional[str] = None,
+    ):
+        self.api_key = (api_key or os.getenv("PINECONE_API_KEY", "")).strip()
+        raw_name = (index_name or os.getenv("PINECONE_INDEX_NAME", "onlinefood")).strip()
+        self.index_name = raw_name.lower().replace("_", "-")
+        self.cloud = (cloud or os.getenv("PINECONE_CLOUD", "aws")).strip()
+        self.region = (region or os.getenv("PINECONE_REGION", "us-east-1")).strip()
+        self.embedding_model_name = (
+            embedding_model_name or os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        ).strip()
+        self.dimension = 384  # Standard dimension for sentence-transformers/all-MiniLM-L6-v2 and BAAI/bge-small-en-v1.5
+
         self.documents: List[Dict[str, Any]] = []
-        self.embeddings: Optional[np.ndarray] = None
-        self.openai_embeddings = None
-        self.use_openai = False
-        self._init_embedding_model()
+        self._cached_embeddings: Optional[np.ndarray] = None
+        self.embedder: Optional[HuggingFaceEmbeddings] = None
+        self.pc: Optional[Pinecone] = None
+        self.index = None
+
+        self._init_embedder()
+        self._init_pinecone()
         self.sync_with_db()
 
-    def _init_embedding_model(self):
-        """Initialize embedding model if API key is present."""
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if openai_key:
-            try:
-                from langchain_openai import OpenAIEmbeddings
-                self.openai_embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-                self.use_openai = True
-                print("MenuVectorStore: OpenAIEmbeddings initialized successfully.")
-            except Exception as e:
-                print(f"MenuVectorStore: Could not initialize OpenAIEmbeddings ({e}), falling back to local vectorizer.")
-                self.use_openai = False
-        else:
-            print("MenuVectorStore: No OPENAI_API_KEY found, using local semantic vector index.")
-            self.use_openai = False
+    def _init_embedder(self):
+        """Initialize HuggingFaceEmbeddings model."""
+        try:
+            hf_token = os.getenv("HF_TOKEN")
+            model_kwargs = {"trust_remote_code": True}
+            if hf_token:
+                model_kwargs["token"] = hf_token
+
+            self.embedder = HuggingFaceEmbeddings(
+                model_name=self.embedding_model_name,
+                model_kwargs=model_kwargs,
+            )
+            print(f"MenuVectorStore: HuggingFaceEmbeddings initialized with model '{self.embedding_model_name}'.")
+        except Exception as e:
+            print(f"MenuVectorStore: Failed to initialize HuggingFaceEmbeddings ({e}).")
+            self.embedder = None
+
+    def _init_pinecone(self):
+        """Initialize Pinecone client and ensure the 'onlinefood' index exists."""
+        if not self.api_key:
+            print(
+                "MenuVectorStore: [WARNING] PINECONE_API_KEY is not set in environment or .env. "
+                f"Please set PINECONE_API_KEY to store vectors in Pinecone index '{self.index_name}'."
+            )
+            return
+
+        try:
+            self.pc = Pinecone(api_key=self.api_key)
+            indexes_res = self.pc.list_indexes()
+            if hasattr(indexes_res, "names"):
+                existing_indexes = list(indexes_res.names())
+            elif isinstance(indexes_res, (list, tuple)):
+                existing_indexes = [getattr(idx, "name", str(idx)) for idx in indexes_res]
+            else:
+                existing_indexes = [str(indexes_res)]
+
+            if self.index_name not in existing_indexes:
+                print(f"MenuVectorStore: Index '{self.index_name}' not found on Pinecone. Creating new Serverless index...")
+                self.pc.create_index(
+                    name=self.index_name,
+                    dimension=self.dimension,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud=self.cloud, region=self.region),
+                )
+                # Wait until index is ready
+                while True:
+                    desc = self.pc.describe_index(self.index_name)
+                    status = getattr(desc, "status", {})
+                    if isinstance(status, dict) and status.get("ready", False):
+                        break
+                    elif getattr(status, "ready", False):
+                        break
+                    time.sleep(1)
+                print(f"MenuVectorStore: Pinecone index '{self.index_name}' created successfully.")
+
+            self.index = self.pc.Index(self.index_name)
+            print(f"MenuVectorStore: Connected to Pinecone index '{self.index_name}'.")
+        except Exception as e:
+            print(f"MenuVectorStore: Pinecone initialization error ({e}).")
+            self.index = None
+
 
     def _create_search_text(self, product: Product) -> str:
         """Create rich textual representation for vector embedding."""
@@ -61,9 +131,10 @@ class MenuVectorStore:
             f"Ingredients: {product.ingredients or ''}. "
             f"Description: {product.description}"
         )
+        print("diet_str : ",diet_str)
 
     def sync_with_db(self):
-        """Load all available products from StoreDB and generate vector embeddings."""
+        """Load all available products from StoreDB, compute embeddings, and upsert to Pinecone."""
         db = SessionLocal()
         try:
             products = db.query(Product).filter(Product.is_available == True).all()
@@ -82,93 +153,55 @@ class MenuVectorStore:
 
             print(f"MenuVectorStore: Indexing {len(self.documents)} products...")
 
-            # Generate Embeddings
-            if self.use_openai and self.openai_embeddings:
-                try:
-                    raw_vecs = self.openai_embeddings.embed_documents(texts)
-                    self.embeddings = np.array(raw_vecs, dtype=np.float32)
-                    # Normalize vectors for cosine similarity
-                    norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
-                    norms[norms == 0] = 1e-10
-                    self.embeddings = self.embeddings / norms
-                    print("MenuVectorStore: Successfully generated OpenAI dense vectors.")
-                    return
-                except Exception as e:
-                    print(f"MenuVectorStore: OpenAI embedding error ({e}), falling back to local vectors.")
-                    self.use_openai = False
+            if not self.embedder:
+                print("MenuVectorStore: Embedder not initialized. Skipping embedding generation.")
+                return
 
-            # Local TF-IDF Vectorizer
-            self._build_local_tfidf_vectors(texts)
-            print(f"MenuVectorStore: Built local vector index for {len(self.documents)} items.")
+            # Compute embeddings
+            raw_vecs = self.embedder.embed_documents(texts)
+            embeddings_array = np.array(raw_vecs, dtype=np.float32)
+            # Normalize vectors
+            norms = np.linalg.norm(embeddings_array, axis=1, keepdims=True)
+            norms[norms == 0] = 1e-10
+            self._cached_embeddings = embeddings_array / norms
+
+            # Upsert into Pinecone if available
+            if self.index:
+                try:
+                    vectors_to_upsert = []
+                    for p_dict, vec in zip(self.documents, raw_vecs):
+                        metadata = {
+                            "id": int(p_dict["id"]),
+                            "name": str(p_dict["name"]),
+                            "category": str(p_dict["category"]),
+                            "price": float(p_dict["price"]),
+                            "description": str(p_dict["description"]),
+                            "ingredients": str(p_dict.get("ingredients") or ""),
+                            "is_vegetarian": bool(p_dict.get("is_vegetarian", False)),
+                            "is_gluten_free": bool(p_dict.get("is_gluten_free", False)),
+                            "is_spicy": bool(p_dict.get("is_spicy", False)),
+                            "calories": int(p_dict.get("calories") or 0),
+                            "is_available": bool(p_dict.get("is_available", True)),
+                            "image_url": str(p_dict.get("image_url") or ""),
+                            "search_text": str(p_dict.get("search_text") or ""),
+                        }
+                        vectors_to_upsert.append({
+                            "id": str(p_dict["id"]),
+                            "values": [float(x) for x in vec],
+                            "metadata": metadata,
+                        })
+
+                    # Upsert in batches of 50
+                    for i in range(0, len(vectors_to_upsert), 50):
+                        batch = vectors_to_upsert[i : i + 50]
+                        self.index.upsert(vectors=batch)
+
+                    print(f"MenuVectorStore: Upserted {len(vectors_to_upsert)} product vectors into Pinecone index '{self.index_name}'.")
+                except Exception as e:
+                    print(f"MenuVectorStore: Error upserting vectors to Pinecone ({e}).")
 
         finally:
             db.close()
-
-    def _tokenize(self, text: str) -> List[str]:
-        """Simple tokenizer for local vector calculations."""
-        tokens = re.findall(r'\b[a-zA-Z0-9_-]+\b', text.lower())
-        return tokens
-
-    def _build_local_tfidf_vectors(self, texts: List[str]):
-        """Generate TF-IDF embedding matrix locally."""
-        all_tokens = [self._tokenize(t) for t in texts]
-        vocab = set()
-        for doc in all_tokens:
-            vocab.update(doc)
-        self.vocab_list = sorted(list(vocab))
-        self.vocab_index = {w: i for i, w in enumerate(self.vocab_list)}
-        N = len(texts)
-
-        # Compute IDF
-        df = np.zeros(len(self.vocab_list), dtype=np.float32)
-        for doc in all_tokens:
-            unique_words = set(doc)
-            for w in unique_words:
-                df[self.vocab_index[w]] += 1.0
-
-        self.idf = np.log((N + 1.0) / (df + 1.0)) + 1.0
-
-        # Compute TF-IDF matrix
-        mat = np.zeros((N, len(self.vocab_list)), dtype=np.float32)
-        for doc_idx, doc in enumerate(all_tokens):
-            for w in doc:
-                idx = self.vocab_index[w]
-                mat[doc_idx, idx] += 1.0
-            # Term Frequency normalization
-            if len(doc) > 0:
-                mat[doc_idx] = mat[doc_idx] / len(doc)
-
-        mat = mat * self.idf
-        # Cosine normalization
-        norms = np.linalg.norm(mat, axis=1, keepdims=True)
-        norms[norms == 0] = 1e-10
-        self.embeddings = mat / norms
-
-    def _embed_query(self, query: str) -> np.ndarray:
-        """Compute embedding for input query."""
-        if self.use_openai and self.openai_embeddings:
-            try:
-                vec = np.array(self.openai_embeddings.embed_query(query), dtype=np.float32)
-                norm = np.linalg.norm(vec)
-                if norm > 0:
-                    vec = vec / norm
-                return vec
-            except Exception as e:
-                print(f"MenuVectorStore: Query embedding error ({e}), using local.")
-
-        # Local query embedding
-        tokens = self._tokenize(query)
-        vec = np.zeros(len(self.vocab_list), dtype=np.float32)
-        for w in tokens:
-            if w in self.vocab_index:
-                vec[self.vocab_index[w]] += 1.0
-        if len(tokens) > 0:
-            vec = vec / len(tokens)
-        vec = vec * self.idf
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec = vec / norm
-        return vec
 
     def search(
         self,
@@ -179,55 +212,114 @@ class MenuVectorStore:
         is_gluten_free: Optional[bool] = None,
         is_spicy: Optional[bool] = None,
         max_price: Optional[float] = None,
-        min_similarity: float = 0.05
+        min_similarity: float = 0.05,
     ) -> List[Dict[str, Any]]:
         """
-        Perform semantic search over menu items with metadata filters.
+        Perform semantic search over menu items with metadata filters on Pinecone.
         """
-        if not self.documents or self.embeddings is None:
+        if not self.documents:
             self.sync_with_db()
             if not self.documents:
                 return []
 
-        query_vec = self._embed_query(query)
-        # Cosine similarities
-        scores = np.dot(self.embeddings, query_vec)
+        if not self.embedder:
+            return []
 
-        results = []
-        for idx, score in enumerate(scores):
-            doc = self.documents[idx]
+        # Generate query vector
+        query_vec = self.embedder.embed_query(query)
 
-            # Metadata Filters
-            if category and category.lower() not in doc.get("category", "").lower():
-                continue
-            if is_vegetarian is True and not doc.get("is_vegetarian"):
-                continue
-            if is_gluten_free is True and not doc.get("is_gluten_free"):
-                continue
-            if is_spicy is True and not doc.get("is_spicy"):
-                continue
-            if max_price is not None and doc.get("price", 0.0) > max_price:
-                continue
+        # 1. Query Pinecone if connected
+        if self.index:
+            try:
+                filter_dict = {}
+                if is_vegetarian is True:
+                    filter_dict["is_vegetarian"] = {"$eq": True}
+                if is_gluten_free is True:
+                    filter_dict["is_gluten_free"] = {"$eq": True}
+                if is_spicy is True:
+                    filter_dict["is_spicy"] = {"$eq": True}
+                if max_price is not None:
+                    filter_dict["price"] = {"$lte": float(max_price)}
 
-            # Check similarity threshold (relaxed for local fallback)
-            sim_score = float(score)
-            results.append({
-                "product": doc,
-                "similarity_score": round(sim_score, 4),
-                "matched_text": doc.get("search_text", "")
-            })
+                # Query Pinecone
+                query_res = self.index.query(
+                    vector=[float(x) for x in query_vec],
+                    top_k=max(top_k * 2, 10),
+                    include_metadata=True,
+                    filter=filter_dict if filter_dict else None,
+                )
 
-        # Sort by similarity score descending
-        results.sort(key=lambda x: x["similarity_score"], reverse=True)
-        return results[:top_k]
+                results = []
+                for match in query_res.get("matches", []):
+                    meta = match.get("metadata", {})
+                    score = float(match.get("score", 0.0))
+
+                    if min_similarity is not None and score < min_similarity:
+                        continue
+                    if category and category.lower() not in meta.get("category", "").lower():
+                        continue
+
+                    results.append({
+                        "product": meta,
+                        "similarity_score": round(score, 4),
+                        "matched_text": meta.get("search_text", ""),
+                    })
+
+                    if len(results) >= top_k:
+                        break
+
+                if results:
+                    return results
+            except Exception as e:
+                print(f"MenuVectorStore: Pinecone query error ({e}), falling back to cached vectors.")
+
+        # 2. In-memory cosine similarity fallback using cached dense embeddings
+        if self._cached_embeddings is not None and len(self.documents) > 0:
+            query_arr = np.array(query_vec, dtype=np.float32)
+            norm = np.linalg.norm(query_arr)
+            if norm > 0:
+                query_arr = query_arr / norm
+
+            scores = np.dot(self._cached_embeddings, query_arr)
+            results = []
+            for idx, score in enumerate(scores):
+                doc = self.documents[idx]
+
+                if category and category.lower() not in doc.get("category", "").lower():
+                    continue
+                if is_vegetarian is True and not doc.get("is_vegetarian"):
+                    continue
+                if is_gluten_free is True and not doc.get("is_gluten_free"):
+                    continue
+                if is_spicy is True and not doc.get("is_spicy"):
+                    continue
+                if max_price is not None and doc.get("price", 0.0) > max_price:
+                    continue
+
+                sim_score = float(score)
+                if min_similarity is not None and sim_score < min_similarity:
+                    continue
+
+                results.append({
+                    "product": doc,
+                    "similarity_score": round(sim_score, 4),
+                    "matched_text": doc.get("search_text", ""),
+                })
+
+            results.sort(key=lambda x: x["similarity_score"], reverse=True)
+            return results[:top_k]
+
+        return []
 
     def get_all_products(self) -> List[Dict[str, Any]]:
-        """Get all product items from store vector DB."""
+        """Get all product items from store catalog."""
+        if not self.documents:
+            self.sync_with_db()
         return self.documents
 
     def get_product_by_id(self, product_id: int) -> Optional[Dict[str, Any]]:
         """Get product metadata by ID."""
-        for doc in self.documents:
+        for doc in self.get_all_products():
             if doc.get("id") == product_id:
                 return doc
         return None
@@ -235,7 +327,7 @@ class MenuVectorStore:
     def get_product_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Find product by exact or fuzzy name match."""
         name_lower = name.lower()
-        for doc in self.documents:
+        for doc in self.get_all_products():
             if name_lower in doc.get("name", "").lower():
                 return doc
         return None

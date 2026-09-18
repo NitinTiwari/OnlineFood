@@ -25,42 +25,42 @@ def seed_database():
         customers = [
             Customer(
                 id=1,
-                name="Alice Johnson",
-                email="alice.j@example.com",
-                phone="+1 (555) 234-5678",
-                address="742 Evergreen Terrace, Apt 4B, Springfield",
+                name="Veer Sharma",
+                email="veer.s@example.com",
+                phone="+91 98765 43210",
+                address="Flat 402, Green Glen Layout, Bellandur, Bengaluru, Karnataka 560103",
                 created_at=datetime.utcnow() - timedelta(days=60)
             ),
             Customer(
                 id=2,
-                name="Bob Smith",
-                email="bob.smith@example.com",
-                phone="+1 (555) 876-5432",
-                address="123 Oak Street, Suite 10, Downtown Metro",
+                name="Priya Patel",
+                email="priya.patel@example.com",
+                phone="+91 98123 45678",
+                address="12B, Sea Mist Apartments, Bandra West, Mumbai, Maharashtra 400050",
                 created_at=datetime.utcnow() - timedelta(days=45)
             ),
             Customer(
                 id=3,
-                name="Charlie Brown",
-                email="charlie.b@example.com",
-                phone="+1 (555) 345-6789",
-                address="456 Pine Hill Road, Suburbia",
+                name="Rohan Verma",
+                email="rohan.verma@example.com",
+                phone="+91 97234 56789",
+                address="House No. 45, Sector 15, Noida, Uttar Pradesh 201301",
                 created_at=datetime.utcnow() - timedelta(days=30)
             ),
             Customer(
                 id=4,
-                name="Diana Prince",
-                email="diana.p@example.com",
-                phone="+1 (555) 987-6543",
-                address="1000 Gateway Blvd, Tower 2 #1402, Metropolis",
+                name="Ananya Iyer",
+                email="ananya.iyer@example.com",
+                phone="+91 99345 67890",
+                address="Flat 3A, Temple View Residency, Mylapore, Chennai, Tamil Nadu 600004",
                 created_at=datetime.utcnow() - timedelta(days=15)
             ),
             Customer(
                 id=5,
-                name="Elena Vance",
-                email="elena.vance@example.com",
-                phone="+1 (555) 456-7890",
-                address="221B Baker Street, West End",
+                name="Kabir Mehta",
+                email="kabir.mehta@example.com",
+                phone="+91 96456 78901",
+                address="Villa 8, Jubilee Hills, Road No. 36, Hyderabad, Telangana 500033",
                 created_at=datetime.utcnow() - timedelta(days=5)
             )
         ]
@@ -341,6 +341,20 @@ def seed_database():
                 calories=130,
                 is_available=True,
                 image_url="https://images.unsplash.com/photo-1613478223719-2ab802602423?w=500"
+            ),
+            Product(
+                id=20,
+                name="Cheeze burger",
+                category="Burgers",
+                price=7.00,
+                description="Cheezy, cheesy.",
+                ingredients="Cheese, Bun, Patty",
+                is_vegetarian=True,
+                is_gluten_free=False,
+                is_spicy=False,
+                calories=230,
+                is_available=True,
+                image_url="https://images.unsplash.com/photo-1613478223720-2ab802602423?w=500"
             )
         ]
         db.add_all(products)
@@ -349,15 +363,15 @@ def seed_database():
         # 3. Orders and OrderItems
         now = datetime.utcnow()
 
-        # Order 1: Alice Johnson - Out for Delivery
+        # Order 1: Veer Sharma - Out for Delivery
         order1 = Order(
             id=1,
             order_number="ORD-1001",
-            customer_id=1,  # Alice Johnson
+            customer_id=1,  # Veer Sharma
             status="Out for Delivery",
             total_amount=36.49,
-            delivery_address="742 Evergreen Terrace, Apt 4B, Springfield",
-            estimated_delivery_time="15-20 minutes (Driver en route: Mark on E-Bike)",
+            delivery_address="Flat 402, Green Glen Layout, Bellandur, Bengaluru, Karnataka 560103",
+            estimated_delivery_time="15-20 minutes (Driver en route: Rajesh on E-Bike)",
             special_instructions="Please ring the doorbell and leave at door.",
             created_at=now - timedelta(minutes=28),
             updated_at=now - timedelta(minutes=5)
@@ -373,14 +387,14 @@ def seed_database():
         order1.total_amount = sum(i.quantity * i.unit_price for i in items1)
         db.add_all(items1)
 
-        # Order 2: Alice Johnson - Past Delivered
+        # Order 2: Veer Sharma - Past Delivered
         order2 = Order(
             id=2,
             order_number="ORD-0985",
-            customer_id=1,  # Alice Johnson
+            customer_id=1,  # Veer Sharma
             status="Delivered",
             total_amount=31.49,
-            delivery_address="742 Evergreen Terrace, Apt 4B, Springfield",
+            delivery_address="Flat 402, Green Glen Layout, Bellandur, Bengaluru, Karnataka 560103",
             estimated_delivery_time="Delivered at 1:45 PM",
             special_instructions="None",
             created_at=now - timedelta(days=3, hours=4),
@@ -397,14 +411,14 @@ def seed_database():
         order2.total_amount = sum(i.quantity * i.unit_price for i in items2)
         db.add_all(items2)
 
-        # Order 3: Bob Smith - Preparing
+        # Order 3: Priya Patel - Preparing
         order3 = Order(
             id=3,
             order_number="ORD-1002",
-            customer_id=2,  # Bob Smith
+            customer_id=2,  # Priya Patel
             status="Preparing",
             total_amount=34.50,
-            delivery_address="123 Oak Street, Suite 10, Downtown Metro",
+            delivery_address="12B, Sea Mist Apartments, Bandra West, Mumbai, Maharashtra 400050",
             estimated_delivery_time="30-35 minutes (Kitchen assembling order)",
             special_instructions="Call when outside building lobby.",
             created_at=now - timedelta(minutes=12),
@@ -420,14 +434,14 @@ def seed_database():
         order3.total_amount = sum(i.quantity * i.unit_price for i in items3)
         db.add_all(items3)
 
-        # Order 4: Charlie Brown - Pending
+        # Order 4: Rohan Verma - Pending
         order4 = Order(
             id=4,
             order_number="ORD-1003",
-            customer_id=3,  # Charlie Brown
+            customer_id=3,  # Rohan Verma
             status="Pending",
             total_amount=24.00,
-            delivery_address="456 Pine Hill Road, Suburbia",
+            delivery_address="House No. 45, Sector 15, Noida, Uttar Pradesh 201301",
             estimated_delivery_time="40-45 minutes (Awaiting kitchen confirmation)",
             special_instructions="Gate code is #4321.",
             created_at=now - timedelta(minutes=4),
@@ -443,14 +457,14 @@ def seed_database():
         order4.total_amount = sum(i.quantity * i.unit_price for i in items4)
         db.add_all(items4)
 
-        # Order 5: Diana Prince - Delivered
+        # Order 5: Ananya Iyer - Delivered
         order5 = Order(
             id=5,
             order_number="ORD-0950",
-            customer_id=4,  # Diana Prince
+            customer_id=4,  # Ananya Iyer
             status="Delivered",
             total_amount=44.98,
-            delivery_address="1000 Gateway Blvd, Tower 2 #1402, Metropolis",
+            delivery_address="Flat 3A, Temple View Residency, Mylapore, Chennai, Tamil Nadu 600004",
             estimated_delivery_time="Delivered Yesterday at 7:30 PM",
             special_instructions="Leave with building concierge.",
             created_at=now - timedelta(days=1, hours=6),
@@ -458,6 +472,7 @@ def seed_database():
         )
         db.add(order5)
         db.commit()
+
 
         items5 = [
             OrderItem(order_id=5, product_id=1, quantity=1, unit_price=18.99, customizations="Thin crust"),
@@ -469,7 +484,8 @@ def seed_database():
         db.add_all(items5)
 
         db.commit()
-        print("Successfully seeded StoreDB with 5 customers, 19 products, and 5 orders!")
+        print(f"Successfully seeded StoreDB with {len(customers)} customers, {len(products)} products, and 5 orders!")
+
 
     except Exception as e:
         db.rollback()

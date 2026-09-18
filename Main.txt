@@ -1,0 +1,469 @@
+================================================================================
+                    ONLINEFOOD APPLICATION FUNCTION CALL REFERENCE
+================================================================================
+File Name: Main.txt
+Description: Comprehensive reference detailing every function call, method,
+             trigger point, invocation order, and data flow in the OnlineFood
+             system.
+================================================================================
+
+
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. High-Level Architecture & Invocation Flow
+2. FastAPI Server Layer (app/main.py)
+3. Database & ORM Layer (app/db/database.py, models.py, seed_data.py)
+4. Vector Store & Pinecone Engine (app/vector_store/menu_vector_store.py)
+5. Multi-Agent Orchestration Graph (app/agents/graph.py, supervisor.py)
+6. Specialist Agents (app/agents/order_agent.py, menu_agent.py, support_agent.py)
+7. Agent Tools Layer (app/agents/tools/order_tools.py, menu_tools.py)
+8. Frontend UI Functions (app/static/js/app.js)
+9. End-to-End Call Lifecycle Scenarios
+
+
+================================================================================
+1. HIGH-LEVEL ARCHITECTURE & INVOCATION FLOW
+================================================================================
+
+The application operates across 4 core layers:
+1. Browser Frontend (SPA: HTML/CSS/Vanilla JS)
+2. FastAPI Backend & REST Endpoints
+3. LangGraph Multi-Agent Orchestrator (Supervisor -> Order / Menu / Support Agent)
+4. Data Persistence & Search (SQLite StoreDB + Pinecone Cloud Vector DB)
+
+Flow Diagram:
+User Interaction (UI)
+    -> HTTP Request (FastAPI main.py)
+        -> Multi-Agent Graph (graph.py)
+            -> Supervisor Node (supervisor.py)
+                -> Specialist Node (OrderAgent / MenuAgent / SupportAgent)
+                    -> Tools (order_tools.py / menu_tools.py)
+                        -> SQLite StoreDB (models.py / database.py)
+                        -> Pinecone Vector Store (menu_vector_store.py)
+    <- Structured JSON Response
+<- Render UI (Chat, Cards, Tables, Agent Traces)
+
+
+================================================================================
+2. FASTAPI SERVER LAYER (app/main.py)
+================================================================================
+
+File: app/main.py
+
+--------------------------------------------------------------------------------
+Function: on_startup()
+--------------------------------------------------------------------------------
+- WHEN CALLED: Triggered automatically once by FastAPI when the Uvicorn server starts up.
+- HOW CALLED: Registered via decorator `@app.on_event("startup")`.
+- WHAT IT DOES:
+  1. Calls `init_db()` to create SQLite tables if they don't already exist.
+  2. Opens a database session (`next(get_db())`).
+  3. Checks if `Customer` table is empty (`db.query(Customer).count() == 0`). If empty, calls `seed_database()`.
+  4. Calls `get_menu_vector_store().sync_with_db()` to connect to Pinecone index 'onlinefood', calculate embeddings, and upsert vectors.
+  5. Closes the database session in `finally: db.close()`.
+
+--------------------------------------------------------------------------------
+Function: chat_endpoint(payload: ChatRequest)
+--------------------------------------------------------------------------------
+- ROUTE: POST /api/chat
+- WHEN CALLED: Triggered when user submits a message in the chat input or clicks a quick prompt chip or food-card button.
+- HOW CALLED: Invoked by frontend `handleSendMessage()` in `app.js` sending JSON: `{query, customer_id, customer_name, history}`.
+- WHAT IT DOES:
+  1. Validates that `query` is not empty (raises HTTP 400 if blank).
+  2. Calls `run_multi_agent_chat(query, customer_id, customer_name, history)` in `app/agents/graph.py`.
+  3. Returns dictionary with `{response, active_agent, intent, agent_trace, order_data, menu_matches}`.
+
+--------------------------------------------------------------------------------
+Function: get_customers(db: Session = Depends(get_db))
+--------------------------------------------------------------------------------
+- ROUTE: GET /api/customers
+- WHEN CALLED: Triggered on initial page load, customer account switching, or after database reset.
+- HOW CALLED: Invoked by frontend `loadCustomers()` via `fetch('/api/customers')`.
+- WHAT IT DOES:
+  1. Queries all `Customer` records from SQLite: `db.query(Customer).all()`.
+  2. Converts each record to a dictionary via `c.to_dict()`.
+  3. Returns JSON: `{"customers": [...]}`.
+
+--------------------------------------------------------------------------------
+Function: get_orders(customer_id: Optional[int] = None, db: Session = Depends(get_db))
+--------------------------------------------------------------------------------
+- ROUTE: GET /api/orders
+- WHEN CALLED: Triggered on page load, when clicking "Refresh DB View", after chat responses, or when filtering by customer.
+- HOW CALLED: Invoked by frontend `loadOrders(customerId)` via `fetch('/api/orders')` or `fetch('/api/orders?customer_id=X')`.
+- WHAT IT DOES:
+  1. Queries `Order` table from SQLite, optionally filtered by `Order.customer_id == customer_id`.
+  2. Orders results descending by creation time: `order_by(Order.created_at.desc())`.
+  3. Serializes each order with its items via `o.to_dict(include_items=True)`.
+  4. Returns JSON: `{"orders": [...]}`.
+
+--------------------------------------------------------------------------------
+Function: get_products(category: Optional[str] = None, db: Session = Depends(get_db))
+--------------------------------------------------------------------------------
+- ROUTE: GET /api/products
+- WHEN CALLED: Triggered on page load, when clicking "Refresh DB View", and after chat messages.
+- HOW CALLED: Invoked by frontend `loadProducts()` via `fetch('/api/products')`.
+- WHAT IT DOES:
+  1. Queries `Product` table from SQLite.
+  2. Filters by `Product.category.ilike(...)` if `category` parameter is provided.
+  3. Serializes each product via `p.to_dict()`.
+  4. Returns JSON: `{"products": [...]}`.
+
+--------------------------------------------------------------------------------
+Function: search_menu_vector_db(...)
+--------------------------------------------------------------------------------
+- ROUTE: GET /api/menu/search
+- WHEN CALLED: Triggered when user enters a query in the "Vector DB Search" playground tab and clicks Search.
+- HOW CALLED: Invoked by frontend `performVectorSearch()` via `fetch('/api/menu/search?query=...&is_vegetarian=...&category=...')`.
+- WHAT IT DOES:
+  1. Calls `get_menu_vector_store()`.
+  2. Calls `store.search(query, top_k, category, is_vegetarian, is_gluten_free, is_spicy, max_price)`.
+  3. Returns JSON: `{"query": query, "total_matches": len(results), "results": results}`.
+
+--------------------------------------------------------------------------------
+Function: reset_db_endpoint()
+--------------------------------------------------------------------------------
+- ROUTE: POST /api/db/reset
+- WHEN CALLED: Triggered when user clicks the "Reset DB" button and confirms the browser prompt.
+- HOW CALLED: Invoked by frontend `resetDatabase()` via `fetch('/api/db/reset', {method: 'POST'})`.
+- WHAT IT DOES:
+  1. Calls `seed_database()` in `app/db/seed_data.py` (deletes existing tables and re-seeds customers, products, orders).
+  2. Calls `get_menu_vector_store().sync_with_db()` to re-index all products in Pinecone.
+  3. Returns JSON: `{"success": True, "message": "StoreDB & Vector DB successfully re-seeded and re-indexed."}`.
+
+--------------------------------------------------------------------------------
+Function: serve_index()
+--------------------------------------------------------------------------------
+- ROUTE: GET /
+- WHEN CALLED: Triggered when user opens the root URL in a web browser.
+- HOW CALLED: Standard HTTP GET from browser navigation.
+- WHAT IT DOES: Returns `app/static/index.html` via FastAPI `FileResponse`.
+
+
+================================================================================
+3. DATABASE & ORM LAYER
+================================================================================
+
+File: app/db/database.py
+--------------------------------------------------------------------------------
+- `get_db()`:
+  * Generator function yielding a SQLAlchemy `Session` from `SessionLocal()`.
+  * Used as a FastAPI dependency (`Depends(get_db)`). Ensures the database session is closed after each request.
+- `init_db()`:
+  * Calls `Base.metadata.create_all(bind=engine)`.
+  * Invoked by `on_startup()` in `app/main.py` and before test suites to ensure tables exist.
+
+File: app/db/models.py
+--------------------------------------------------------------------------------
+- `Customer.to_dict()`:
+  * Returns dictionary representation of a customer (id, name, email, phone, address, created_at, total_orders).
+  * Called by `get_customers()` and `get_customer_orders()`.
+- `Product.to_dict()`:
+  * Returns dictionary representation of a menu item (id, name, category, price, ingredients, calories, flags, image_url).
+  * Called by `get_products()`, `sync_with_db()`, and agent formatting functions.
+- `Order.to_dict(include_items=True)`:
+  * Returns dictionary representation of an order. If `include_items=True`, maps each item via `item.to_dict()`.
+  * Called by `get_orders()`, `get_order_by_number()`, `get_customer_orders()`, `get_latest_active_order()`.
+- `OrderItem.to_dict()`:
+  * Returns dictionary of individual line item (product_id, name, quantity, unit_price, subtotal, customizations).
+
+File: app/db/seed_data.py
+--------------------------------------------------------------------------------
+- `seed_database()`:
+  * Clears existing records (`OrderItem`, `Order`, `Product`, `Customer`) if present.
+  * Adds 5 default customers, 20 curated products across 8 categories, and 5 demo orders with various lifecycle statuses.
+  * Called by `on_startup()` (when empty), `reset_db_endpoint()`, and test suites.
+
+
+================================================================================
+4. VECTOR STORE & PINECONE ENGINE (app/vector_store/menu_vector_store.py)
+================================================================================
+
+File: app/vector_store/menu_vector_store.py
+
+--------------------------------------------------------------------------------
+Function: get_menu_vector_store() -> MenuVectorStore
+--------------------------------------------------------------------------------
+- WHEN CALLED: Whenever any component requires vector search or catalog access.
+- HOW CALLED: Module singleton access pattern (`global _menu_vector_store`).
+- CALLERS: `main.py`, `menu_tools.py`, `test_suite.py`.
+
+--------------------------------------------------------------------------------
+Method: MenuVectorStore.__init__(...)
+--------------------------------------------------------------------------------
+- WHEN CALLED: When the singleton `MenuVectorStore` instance is first created.
+- HOW CALLED: Inside `get_menu_vector_store()`.
+- WHAT IT DOES:
+  1. Reads configuration: `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` ('onlinefood'), `EMBEDDING_MODEL` ('sentence-transformers/all-MiniLM-L6-v2').
+  2. Sets vector dimension to 384.
+  3. Calls `self._init_embedder()`.
+  4. Calls `self._init_pinecone()`.
+  5. Calls `self.sync_with_db()`.
+
+--------------------------------------------------------------------------------
+Method: MenuVectorStore._init_embedder()
+--------------------------------------------------------------------------------
+- WHEN CALLED: Inside `__init__()`.
+- WHAT IT DOES:
+  1. Reads `HF_TOKEN` if present.
+  2. Initializes `langchain_huggingface.HuggingFaceEmbeddings` with model `sentence-transformers/all-MiniLM-L6-v2`.
+
+--------------------------------------------------------------------------------
+Method: MenuVectorStore._init_pinecone()
+--------------------------------------------------------------------------------
+- WHEN CALLED: Inside `__init__()`.
+- WHAT IT DOES:
+  1. Checks if `PINECONE_API_KEY` is present. If missing, prints warning.
+  2. Initializes `Pinecone(api_key=...)`.
+  3. Calls `self.pc.list_indexes()` and inspects existing index names.
+  4. If `onlinefood` index does not exist:
+     Calls `self.pc.create_index(name='onlinefood', dimension=384, metric='cosine', spec=ServerlessSpec(cloud='aws', region='us-east-1'))`.
+     Polls `self.pc.describe_index()` until status is ready.
+  5. Connects to `self.index = self.pc.Index('onlinefood')`.
+
+--------------------------------------------------------------------------------
+Method: MenuVectorStore._create_search_text(product: Product) -> str
+--------------------------------------------------------------------------------
+- WHEN CALLED: During database sync for each available product.
+- WHAT IT DOES: Creates rich concatenated textual description for vectorization (Dish name, Category, Price, Calories, Dietary flags, Ingredients, Description).
+
+--------------------------------------------------------------------------------
+Method: MenuVectorStore.sync_with_db()
+--------------------------------------------------------------------------------
+- WHEN CALLED: On app startup, during DB reset, and during test suite initialization.
+- WHAT IT DOES:
+  1. Opens database session and queries all products where `Product.is_available == True`.
+  2. Builds `self.documents` list of product dictionaries.
+  3. Computes 384-dimensional embeddings for all products using `self.embedder.embed_documents(texts)`.
+  4. Constructs Pinecone vector records with complete metadata.
+  5. Upserts vector batch to Pinecone index `onlinefood` via `self.index.upsert(vectors=batch)`.
+
+--------------------------------------------------------------------------------
+Method: MenuVectorStore.search(query, top_k=5, category, is_veg, is_gf, is_spicy, max_price, min_sim)
+--------------------------------------------------------------------------------
+- WHEN CALLED: By `search_menu_items()`, `get_menu_recommendations()`, and `search_menu_vector_db()`.
+- WHAT IT DOES:
+  1. Generates query vector: `query_vec = self.embedder.embed_query(query)`.
+  2. Builds Pinecone metadata filter dictionary (`$eq` for boolean flags, `$lte` for price).
+  3. Queries Pinecone index: `self.index.query(vector=query_vec, top_k=top_k*2, include_metadata=True, filter=filter_dict)`.
+  4. Filters results (similarity threshold, category substring match) and returns top_k results in format:
+     `[{"product": metadata_dict, "similarity_score": score, "matched_text": text}, ...]`.
+
+--------------------------------------------------------------------------------
+Methods: get_all_products(), get_product_by_id(id), get_product_by_name(name)
+--------------------------------------------------------------------------------
+- In-memory lookups against cached `self.documents` for instant retrieval without API roundtrips.
+
+
+================================================================================
+5. MULTI-AGENT ORCHESTRATION GRAPH (app/agents/graph.py & supervisor.py)
+================================================================================
+
+File: app/agents/graph.py
+
+--------------------------------------------------------------------------------
+Function: build_graph() / compiled agent_app
+--------------------------------------------------------------------------------
+- LangGraph StateGraph initialized with `AgentState`.
+- Nodes:
+  * `supervisor_node`: Entry point, analyzes intent.
+  * `order_agent_node`: Handles order tracking and history.
+  * `menu_agent_node`: Handles menu search, recommendations, ingredients.
+  * `support_agent_node`: Handles FAQs, policies, hours, contact.
+- Conditional Edges:
+  * `route_decision(state)` routes from `supervisor_node` to `order_agent_node`, `menu_agent_node`, or `support_agent_node`.
+  * All specialist nodes route to `END`.
+
+--------------------------------------------------------------------------------
+Function: run_multi_agent_chat(query, customer_id, customer_name, history)
+--------------------------------------------------------------------------------
+- WHEN CALLED: Main entry point for chat invoked by `chat_endpoint()` in `app/main.py`.
+- HOW CALLED: `result = run_multi_agent_chat(...)`.
+- WHAT IT DOES:
+  1. Initializes `initial_state: AgentState`.
+  2. Invokes graph execution: `result_state = agent_app.invoke(initial_state)`.
+  3. Extracts response, active_agent, intent, agent_trace, order_data, menu_matches.
+  4. Returns structured result dictionary.
+
+File: app/agents/supervisor.py
+
+--------------------------------------------------------------------------------
+Method: SupervisorAgent.route(state: AgentState) -> AgentState
+--------------------------------------------------------------------------------
+- WHEN CALLED: Executed inside `supervisor_node` as the first step of graph execution.
+- WHAT IT DOES:
+  1. Analyzes user query using regex and keyword matching.
+  2. Checks for Order keywords (`order`, `ORD-`, `#`, `track`, `delivery`, `where is my`).
+  3. Checks for Menu keywords (`menu`, `pizza`, `burger`, `spicy`, `vegan`, `price`, `food`, etc.).
+  4. Checks for Support keywords (`hours`, `refund`, `cancel`, `contact`, `policy`, `help`).
+  5. Sets `state["intent"]` (e.g. `ORDER_QUERY`, `MENU_QUERY`, `SUPPORT_QUERY`).
+  6. Sets `state["next_agent"]` (`order_agent`, `menu_agent`, `support_agent`).
+  7. Appends a routing step to `state["agent_trace"]`.
+
+
+================================================================================
+6. SPECIALIST AGENTS LAYER
+================================================================================
+
+File: app/agents/order_agent.py
+--------------------------------------------------------------------------------
+- `OrderAgent.execute(state)`:
+  * Analyzes order query intent.
+  * If specific order number detected: calls `get_order_by_number()`.
+  * If order history query: calls `get_customer_orders()`.
+  * If general tracking query: calls `get_latest_active_order()`.
+  * Formats response using `_format_single_order()` or `_format_order_history()`.
+  * Sets `state["order_data"]` and appends trace to `state["agent_trace"]`.
+
+File: app/agents/menu_agent.py
+--------------------------------------------------------------------------------
+- `MenuAgent.execute(state)`:
+  * Extracts dietary flags (`is_vegetarian`, `is_gluten_free`, `is_spicy`), price ceiling (`max_price`), and category.
+  * If dish details/ingredients query: calls `get_item_details()`.
+  * If categories overview query: calls `get_all_categories()`.
+  * Otherwise: calls `search_menu_items()` to perform Pinecone semantic vector search.
+  * Formats response via `_format_single_product()`, `_format_search_results()`, or `_format_categories_overview()`.
+  * Sets `state["menu_matches"]` and appends trace to `state["agent_trace"]`.
+
+File: app/agents/support_agent.py
+--------------------------------------------------------------------------------
+- `SupportAgent.execute(state)`:
+  * Evaluates query against restaurant support policies (Store Hours, Delivery Radius, Cancellation/Refund, Payment methods).
+  * Generates markdown guidance response.
+  * Appends step to `state["agent_trace"]`.
+
+
+================================================================================
+7. AGENT TOOLS LAYER
+================================================================================
+
+File: app/agents/tools/order_tools.py
+--------------------------------------------------------------------------------
+- `get_order_by_number(order_number)`:
+  * Queries `Order` by order number or ID in SQLite StoreDB.
+  * Returns serialized order with customer and items.
+- `get_customer_orders(customer_identifier)`:
+  * Queries all `Order` rows for a specific customer ID/name.
+- `get_latest_active_order(customer_id)`:
+  * Queries most recent order with status 'Pending', 'Preparing', or 'Out for Delivery'.
+- `get_customer_profile(customer_identifier)`:
+  * Queries customer metadata and address info.
+
+File: app/agents/tools/menu_tools.py
+--------------------------------------------------------------------------------
+- `search_menu_items(query, category, is_vegetarian, is_gluten_free, is_spicy, max_price, top_k)`:
+  * Calls `MenuVectorStore.search()` to query Pinecone vector DB.
+- `get_menu_recommendations(preference_or_mood, top_k)`:
+  * Calls `MenuVectorStore.search(query=preference_or_mood)`.
+- `get_item_details(item_name)`:
+  * Calls `MenuVectorStore.get_product_by_name(item_name)`.
+- `get_all_categories()`:
+  * Calls `MenuVectorStore.get_all_products()` and aggregates counts per category.
+
+
+================================================================================
+8. FRONTEND UI FUNCTIONS (app/static/js/app.js)
+================================================================================
+
+File: app/static/js/app.js
+--------------------------------------------------------------------------------
+- `initApp()`:
+  * Triggered on `DOMContentLoaded`. Initializes listeners and calls `loadCustomers()`, `loadStoreDbData()`.
+- `loadCustomers()`:
+  * Fetches `GET /api/customers`, populates `#customerSelect` dropdown, and updates active customer banner.
+- `loadOrders(customerId)`:
+  * Fetches `GET /api/orders` (or with `customer_id`), renders HTML orders table and active order badge.
+- `loadProducts()`:
+  * Fetches `GET /api/products`, renders HTML products table.
+- `loadStoreDbData()`:
+  * Triggers concurrent reload of both orders and products.
+- `handleSendMessage(queryText)`:
+  * Reads chat input, displays user chat bubble, displays typing spinner, and calls `POST /api/chat`.
+  * Parses response and renders agent Markdown, execution traces (`renderAgentTrace`), order progress cards (`renderOrderCard`), or food recommendation cards (`renderFoodCards`).
+- `performVectorSearch()`:
+  * Reads `#vectorSearchInput` and filter checkboxes in the Vector DB tab.
+  * Calls `GET /api/menu/search`, renders matching items with similarity percentage badges.
+- `resetDatabase()`:
+  * Displays confirmation dialog, sends `POST /api/db/reset`, alerts result, and refreshes UI data.
+
+
+================================================================================
+9. END-TO-END CALL LIFECYCLE SCENARIOS
+================================================================================
+
+--------------------------------------------------------------------------------
+SCENARIO A: APPLICATION STARTUP
+--------------------------------------------------------------------------------
+1. User starts backend via `python run.py`.
+2. FastAPI triggers `@app.on_event("startup")` -> `on_startup()`.
+3. `on_startup()` -> `init_db()` creates SQLite database tables if missing.
+4. `on_startup()` checks `db.query(Customer).count()`. If 0, calls `seed_database()`.
+5. `on_startup()` calls `get_menu_vector_store()`.
+6. `MenuVectorStore.__init__()` initializes `HuggingFaceEmbeddings` and connects to Pinecone.
+7. `MenuVectorStore._init_pinecone()` checks if index 'onlinefood' exists on Pinecone; creates it if absent.
+8. `MenuVectorStore.sync_with_db()` reads SQLite products, computes embeddings, and upserts vectors into Pinecone.
+9. Browser loads `index.html` -> `app.js` runs `initApp()`.
+10. `initApp()` calls `loadCustomers()` and `loadStoreDbData()`.
+11. UI displays active customer, customer orders, catalog tables, and chat welcome message.
+
+--------------------------------------------------------------------------------
+SCENARIO B: USER ASKS: "Where is my order #ORD-1001?"
+--------------------------------------------------------------------------------
+1. User types query and submits chat form.
+2. `app.js` `handleSendMessage()` adds user message to chat UI, shows typing indicator.
+3. `app.js` sends `POST /api/chat` with `{query: "Where is my order #ORD-1001?", customer_id: 1, customer_name: "Veer Sharma"}`.
+4. `app/main.py` `chat_endpoint()` receives request and calls `run_multi_agent_chat(...)`.
+5. `run_multi_agent_chat()` starts LangGraph: `agent_app.invoke(initial_state)`.
+6. LangGraph enters `supervisor_node()` -> calls `SupervisorAgent.route(state)`.
+7. `SupervisorAgent` detects pattern `ORD-1001`, sets `intent = "ORDER_QUERY"`, `next_agent = "order_agent"`, records thought in trace.
+8. LangGraph conditional edge `route_decision()` routes to `order_agent_node()`.
+9. `order_agent_node()` -> `OrderAgent.execute(state)`.
+10. `OrderAgent` calls `order_tools.get_order_by_number("ORD-1001")`.
+11. `get_order_by_number()` queries SQLite `Order` table, retrieves order status "Out for Delivery" and item details.
+12. `OrderAgent` formats Markdown response, sets `state["order_data"]`, appends execution trace.
+13. LangGraph finishes at `END`. `run_multi_agent_chat()` returns JSON response to `chat_endpoint()`.
+14. `chat_endpoint()` returns HTTP 200 JSON to browser.
+15. `app.js` renders assistant markdown message, collapsible Agent Trace timeline, and Order Status Progress Card with delivery driver ETA.
+
+--------------------------------------------------------------------------------
+SCENARIO C: USER ASKS: "Find spicy pizza under $20"
+--------------------------------------------------------------------------------
+1. User sends message: "Find spicy pizza under $20".
+2. `chat_endpoint()` calls `run_multi_agent_chat()`.
+3. `supervisor_node()` analyzes keywords ("pizza", "spicy"), sets `intent = "MENU_QUERY"`, `next_agent = "menu_agent"`.
+4. `route_decision()` routes to `menu_agent_node()`.
+5. `menu_agent_node()` -> `MenuAgent.execute(state)`.
+6. `MenuAgent` parses filters: `category = "Pizza"`, `is_spicy = True`, `max_price = 20.0`.
+7. `MenuAgent` calls `menu_tools.search_menu_items(query="Find spicy pizza under $20", category="Pizza", is_spicy=True, max_price=20.0)`.
+8. `search_menu_items()` calls `MenuVectorStore.search(...)`.
+9. `MenuVectorStore.search()` embeds query with Hugging Face, queries Pinecone index 'onlinefood' with metadata filter `{is_spicy: {$eq: true}, price: {$lte: 20.0}}`.
+10. Pinecone returns ranked matches (e.g. Calabrian Chili Hot Honey Pizza).
+11. `MenuAgent` formats Markdown with prices and similarity scores, sets `state["menu_matches"]`.
+12. LangGraph ends, API returns response.
+13. `app.js` renders assistant chat bubble and interactive Food Cards with "Ask Details" buttons.
+
+--------------------------------------------------------------------------------
+SCENARIO D: DIRECT VECTOR DB SEARCH PLAYGROUND
+--------------------------------------------------------------------------------
+1. User opens "Vector DB Search" tab, types "truffle mushroom", checks "Vegetarian", clicks "Search Vector DB".
+2. `app.js` `performVectorSearch()` reads query and checkboxes.
+3. `app.js` sends `GET /api/menu/search?query=truffle+mushroom&is_vegetarian=true`.
+4. `app/main.py` `search_menu_vector_db()` receives query parameters.
+5. Calls `get_menu_vector_store().search(...)`.
+6. `MenuVectorStore.search()` embeds query and executes Pinecone vector similarity query with metadata filter.
+7. Endpoint returns matching products with cosine similarity scores.
+8. `app.js` renders match cards with similarity percentage tags (e.g. "95% Match").
+
+--------------------------------------------------------------------------------
+SCENARIO E: DATABASE RESET (POST /api/db/reset)
+--------------------------------------------------------------------------------
+1. User clicks "Reset DB" in UI header and confirms prompt.
+2. `app.js` `resetDatabase()` sends `POST /api/db/reset`.
+3. `app/main.py` `reset_db_endpoint()` executes:
+   a. `seed_database()`: Drops and re-creates all rows in SQLite `store.db`.
+   b. `get_menu_vector_store().sync_with_db()`: Re-computes embeddings and re-upserts all vectors into Pinecone index 'onlinefood'.
+4. Server returns success response.
+5. `app.js` displays success alert, calls `loadCustomers()`, `loadStoreDbData()`, and refreshes all UI views.
+
+================================================================================
+END OF FILE
+================================================================================

@@ -4,7 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // State
     const state = {
         activeCustomerId: 1,
-        activeCustomerName: "Alice Johnson",
+        activeCustomerName: "Veer Sharma",
         customers: [],
         orders: [],
         products: [],

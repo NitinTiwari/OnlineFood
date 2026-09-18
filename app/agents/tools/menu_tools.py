@@ -25,7 +25,7 @@ def search_menu_items(
         is_spicy=is_spicy,
         max_price=max_price
     )
-
+    print("search_menu_items: called......")
     if not results:
         return {
             "success": False,
@@ -46,6 +46,7 @@ def get_menu_recommendations(preference_or_mood: str, top_k: int = 3) -> Dict[st
     """
     Generate contextual food recommendations from Vector DB based on mood, craving, or dietary preference.
     """
+    print("get_menu_recommendations: called......")
     vector_store = get_menu_vector_store()
     results = vector_store.search(query=preference_or_mood, top_k=top_k)
 
@@ -60,6 +61,7 @@ def get_item_details(item_name: str) -> Dict[str, Any]:
     """
     Get in-depth ingredients, dietary flags, calories, and description for a specific menu item.
     """
+    print("get_item_details: called......")
     vector_store = get_menu_vector_store()
     product = vector_store.get_product_by_name(item_name)
 
@@ -79,6 +81,7 @@ def get_all_categories() -> Dict[str, Any]:
     """
     Get all categories and summary counts of items.
     """
+    print("get_all_categories: called......")
     vector_store = get_menu_vector_store()
     products = vector_store.get_all_products()
     categories = {}

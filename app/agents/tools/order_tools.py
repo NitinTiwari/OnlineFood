@@ -10,6 +10,7 @@ def get_order_by_number(order_number: str) -> Dict[str, Any]:
     Returns full details including customer name, items, status, total price, and delivery info.
     """
     db = SessionLocal()
+    print("get_order_by_number: called......")
     try:
         # Normalize order number
         clean_num = order_number.strip().upper()
@@ -42,6 +43,7 @@ def get_customer_orders(customer_identifier: Any) -> Dict[str, Any]:
     Look up all orders for a customer by customer ID, name, email, or phone in StoreDB.
     """
     db = SessionLocal()
+    print("get_customer_orders: called......")
     try:
         customer = None
         if isinstance(customer_identifier, int) or (isinstance(customer_identifier, str) and customer_identifier.isdigit()):
@@ -79,6 +81,7 @@ def get_customer_profile(customer_identifier: Any) -> Dict[str, Any]:
     Get customer profile from StoreDB.
     """
     db = SessionLocal()
+    print("get_customer_profile: called......")
     try:
         customer = None
         if isinstance(customer_identifier, int) or (isinstance(customer_identifier, str) and customer_identifier.isdigit()):
@@ -104,6 +107,7 @@ def get_latest_active_order(customer_id: int) -> Dict[str, Any]:
     Find the most recent active order (Preparing, Out for Delivery, Pending) for a customer.
     """
     db = SessionLocal()
+    print("get_latest_active_order: called......")
     try:
         order = db.query(Order).filter(
             Order.customer_id == customer_id,

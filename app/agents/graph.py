@@ -87,6 +87,7 @@ def run_multi_agent_chat(
     Executes the LangGraph workflow and returns comprehensive response,
     agent execution traces, and structured UI components.
     """
+    print("run_multi_agent_chat: called......")
     initial_state: AgentState = {
         "query": query,
         "customer_id": customer_id,

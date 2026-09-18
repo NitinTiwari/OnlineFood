@@ -21,7 +21,7 @@ class MenuAgent:
     def execute(self, state: AgentState) -> AgentState:
         query = state.get("query", "")
         q_lower = query.lower()
-
+        print("tool called: ", self.name) 
         trace_step = {
             "agent": "Menu Vector Search Agent",
             "thought": "Extracting search intent, dietary flags, and performing semantic search in Vector DB...",

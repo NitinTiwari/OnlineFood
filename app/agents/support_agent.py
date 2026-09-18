@@ -13,7 +13,7 @@ class SupportAgent:
 
     def execute(self, state: AgentState) -> AgentState:
         query = state.get("query", "").lower()
-
+        print("support_agent: called......")
         trace_step = {
             "agent": "Support Agent",
             "thought": "Customer asking for general store information or policies. Accessing FAQ knowledge base...",

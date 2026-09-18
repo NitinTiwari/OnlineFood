@@ -34,7 +34,7 @@ class TestTanishRestaurantMultiAgent(unittest.TestCase):
             # Check order items relationship
             order1 = db.query(Order).filter(Order.order_number == "ORD-1001").first()
             self.assertIsNotNone(order1)
-            self.assertEqual(order1.customer.name, "Alice Johnson")
+            self.assertEqual(order1.customer.name, "Veer Sharma")
             self.assertGreater(len(order1.items), 0)
             self.assertEqual(order1.status, "Out for Delivery")
             print("[PASS] StoreDB Schema and Relationships Verified")
@@ -65,7 +65,7 @@ class TestTanishRestaurantMultiAgent(unittest.TestCase):
     def test_03_multi_agent_order_routing(self):
         """Test Supervisor -> Order Agent routing and StoreDB querying."""
         # Specific order query
-        res = run_multi_agent_chat("Where is my order #ORD-1001?", customer_id=1, customer_name="Alice Johnson")
+        res = run_multi_agent_chat("Where is my order #ORD-1001?", customer_id=1, customer_name="Veer Sharma")
         self.assertEqual(res["active_agent"], "Order Agent")
         self.assertIsNotNone(res["order_data"])
         self.assertEqual(res["order_data"]["order_number"], "ORD-1001")
@@ -73,7 +73,8 @@ class TestTanishRestaurantMultiAgent(unittest.TestCase):
         self.assertGreaterEqual(len(res["agent_trace"]), 2)
 
         # Customer order history query
-        res_history = run_multi_agent_chat("Show my past orders", customer_id=1, customer_name="Alice Johnson")
+        res_history = run_multi_agent_chat("Show my past orders", customer_id=1, customer_name="Veer Sharma")
+
         self.assertEqual(res_history["active_agent"], "Order Agent")
         self.assertIn("Order History", res_history["response"])
         print("[PASS] Multi-Agent Order Routing & Tracking Verified")
@@ -129,6 +130,54 @@ class TestTanishRestaurantMultiAgent(unittest.TestCase):
 
         print("[PASS] All FastAPI Endpoints Verified Successfully")
 
+    def test_07_pinecone_vector_store_integration(self):
+        """Test Pinecone Vector Store initialization and query workflow."""
+        from unittest.mock import MagicMock, patch
+        from app.vector_store.menu_vector_store import MenuVectorStore
+
+        # Test index creation when index does not exist
+        mock_pc = MagicMock()
+        mock_idx_item = MagicMock()
+        mock_idx_item.name = "some_other_index"
+        mock_pc.list_indexes.return_value = [mock_idx_item]
+        mock_pc.describe_index.return_value.status = {"ready": True}
+
+        mock_index_instance = MagicMock()
+        mock_index_instance.query.return_value = {
+            "matches": [
+                {
+                    "id": "1",
+                    "score": 0.95,
+                    "metadata": {
+                        "id": 1,
+                        "name": "Truffle Mushroom Artisan Pizza",
+                        "category": "Pizza",
+                        "price": 22.0,
+                        "is_vegetarian": True,
+                        "is_gluten_free": False,
+                        "is_spicy": False,
+                        "search_text": "Dish: Truffle Mushroom Artisan Pizza."
+                    }
+                }
+            ]
+        }
+        mock_pc.Index.return_value = mock_index_instance
+
+        with patch("app.vector_store.menu_vector_store.Pinecone", return_value=mock_pc):
+            store = MenuVectorStore(index_name="OnlineFood", api_key="pc_test_key_123")
+            # Verify Pinecone create_index was called with 'OnlineFood' and dimension 384
+            mock_pc.create_index.assert_called_once()
+            self.assertEqual(mock_pc.create_index.call_args[1]["name"], "onlinefood")
+            self.assertEqual(mock_pc.create_index.call_args[1]["dimension"], 384)
+
+            # Test search query through Pinecone
+            res = store.search("truffle pizza", top_k=1)
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["product"]["name"], "Truffle Mushroom Artisan Pizza")
+            self.assertEqual(res[0]["similarity_score"], 0.95)
+            print("[PASS] Pinecone Vector Store Integration & Auto-Index Creation Verified")
+
 
 if __name__ == "__main__":
     unittest.main()
+
